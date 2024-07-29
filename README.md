@@ -12,7 +12,7 @@ This is the standalone Pytorch implementation of Zamba2-2.7B. A Huggingface-comp
 
 ## Quick start
 
-### Presequities
+### Prerequisites
 
 To begin, clone and install this repo:
 
