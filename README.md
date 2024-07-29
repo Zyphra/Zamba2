@@ -1,4 +1,4 @@
-# Zamba v2 2.7B
+# Zamba2-2.7B
 
 Zamba2-2.7B is a hybrid model between state-space models and transformers. It broadly follows the [Zamba architecture](https://arxiv.org/abs/2405.16712) which consists of a Mamba backbone alternating with shared transformer blocks. Zamba-2-2.7B possesses three major improvements over Zamba1:
 
