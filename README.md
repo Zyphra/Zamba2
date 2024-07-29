@@ -1,5 +1,3 @@
-Zamba2-torch README
-
 # Zamba v2 2.7B
 
 Zamba2-2.7B is a hybrid model between state-space models and transformers. It broadly follows the [Zamba architecture](https://arxiv.org/abs/2405.16712) which consists of a Mamba backbone alternating with shared transformer blocks. Zamba-2-2.7B possesses three major improvements over Zamba1:
@@ -18,9 +16,9 @@ This is the standalone Pytorch implementation of Zamba2-2.7B. A Huggingface-comp
 
 To begin, clone and install this repo:
 
-1.) `git clone https://github.com/Zyphra/zamba2_torch.git`
+1.) `git clone https://github.com/Zyphra/Zamba2.git`
 
-2.) cd `zamba2_torch`
+2.) cd `Zamba2`
 
 3.) Install the repository: `pip install -e .`
 
@@ -38,10 +36,19 @@ import torch
 from transformers import AutoTokenizer
 
 tokenizer = AutoTokenizer.from_pretrained("Zyphra/Zamba2-2.7B")
-model = MambaModel.from_pretrained("Zyphra/Zamba2-2.7B").cuda().half()
-input_text = "The meaning of life is"
-input_ids = tokenizer(input_text, return_tensors="pt").to("cuda")["input_ids"]
-out = model(input_ids)
+input_text = 'A funny prompt would be '
+input_ids = tokenizer(input_text, return_tensors="pt").to("cuda")["input_ids"].transpose(0,1)
+model = MambaModel.from_pretrained(model_name = "Zyphra/Zamba2-2.7B").cuda().half()
+tokens_to_generate = 20
+model.eval()
+with torch.no_grad():
+    for _ in range(tokens_to_generate):
+        out = model(input_ids)
+        out_last = out[:, -1]
+        idx = torch.argmax(out_last)[None, None]
+        input_ids = torch.cat((input_ids, idx), dim=0)
+input_ids = input_ids.transpose(0, 1)[0]
+print(repr(tokenizer.decode(input_ids.cpu().numpy().tolist())))
 ```
 
 ## Model Details
