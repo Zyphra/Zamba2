@@ -40,7 +40,6 @@ from mamba2_layer import Mamba2Layer
 from mamba_config import MambaConfig
 from mlp import MLP
 from attention import CausalSelfAttention
-from switch_mlp import SwitchMLP
 from rotary import RotaryEmbedding
 
 
@@ -398,29 +397,6 @@ def create_block(config, layer_idx):
                     fused_add_norm=config.fused_add_norm,
                     residual_in_fp32=config.residual_in_fp32,
                 )
-            else:
-                if config.layer_mapping[layer_idx-1][1] == '1':
-                    norm_moe = partial(nn.LayerNorm if not config.rms_norm else RMSNorm, eps=config.layernorm_epsilon)
-                    mixer_cls = partial(MambaLayer,layer_idx=layer_idx, **factory_kwargs)
-                    moe_cls = partial(MLP,layer_idx=layer_idx, **factory_kwargs)
-                    block = MambaBlockParallelMoe(
-                    config,
-                    mixer_cls=mixer_cls,
-                    moe_cls=moe_cls,
-                    norm_cls=norm_cls,
-                    norm_moe=norm_moe,
-                    fused_add_norm=config.fused_add_norm,
-                    residual_in_fp32=config.residual_in_fp32,
-                )
-        elif config.layer_mapping[layer_idx-1][0] == 'a':
-            mixer_cls = partial(CausalSelfAttention, layer_number=layer_idx, **factory_kwargs)
-            block = AttentionBlock(
-                config,
-                mixer_cls=mixer_cls,
-                norm_cls=norm_cls,
-                fused_add_norm=config.fused_add_norm,
-                residual_in_fp32=config.residual_in_fp32,
-            )
         elif config.layer_mapping[layer_idx-1][0] == 'm': 
             
             mixer_cls = partial(Mamba2Layer, layer_idx=layer_idx, **factory_kwargs)
@@ -431,16 +407,6 @@ def create_block(config, layer_idx):
                 fused_add_norm=config.fused_add_norm,
                 residual_in_fp32=config.residual_in_fp32,
             )
-        else:
-            mixer_cls = partial(SwitchMLP, layer_idx=layer_idx, **factory_kwargs)
-            block = MoEBlock(
-                config,
-                mixer_cls=mixer_cls,
-                norm_cls=norm_cls,
-                fused_add_norm=config.fused_add_norm,
-                residual_in_fp32=config.residual_in_fp32,
-            )
-        block.layer_idx = layer_idx
     return block
 
 class MambaDecoder(nn.Module):

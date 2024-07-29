@@ -1,3 +1,5 @@
+Zamba2-torch README
+
 # Zamba v2 2.7B
 
 Zamba2-2.7B is a hybrid model between state-space models and transformers. It broadly follows the [Zamba architecture](https://arxiv.org/abs/2405.16712) which consists of a Mamba backbone alternating with shared transformer blocks. Zamba-2-2.7B possesses three major improvements over Zamba1:
@@ -16,9 +18,9 @@ This is the standalone Pytorch implementation of Zamba2-2.7B. A Huggingface-comp
 
 To begin, clone and install this repo:
 
-1.) `git clone https://github.com/Zyphra/Zamba2.git`
+1.) `git clone https://github.com/Zyphra/zamba2_torch.git`
 
-2.) cd `Zamba2`
+2.) cd `zamba2_torch`
 
 3.) Install the repository: `pip install -e .`
 
@@ -36,24 +38,15 @@ import torch
 from transformers import AutoTokenizer
 
 tokenizer = AutoTokenizer.from_pretrained("Zyphra/Zamba2-2.7B")
-input_text = 'A funny prompt would be '
-input_ids = tokenizer(input_text, return_tensors="pt").to("cuda")["input_ids"].transpose(0,1)
-model = MambaModel.from_pretrained(model_name = "Zyphra/Zamba2-2.7B").cuda().half()
-tokens_to_generate = 20
-model.eval()
-with torch.no_grad():
-    for _ in range(tokens_to_generate):
-        out = model(input_ids)
-        out_last = out[:, -1]
-        idx = torch.argmax(out_last)[None, None]
-        input_ids = torch.cat((input_ids, idx), dim=0)
-input_ids = input_ids.transpose(0, 1)[0]
-print(repr(tokenizer.decode(input_ids.cpu().numpy().tolist())))
+model = MambaModel.from_pretrained("Zyphra/Zamba2-2.7B").cuda().half()
+input_text = "The meaning of life is"
+input_ids = tokenizer(input_text, return_tensors="pt").to("cuda")["input_ids"]
+out = model(input_ids)
 ```
 
 ## Model Details
 
-Zamba2-2.7B utilizes and extends our original Zamba hybrid SSM-attention architecture. The core Zamba architecture consists of a backbone of Mamba layers interleaved with one or more shared attention layers (one shared attention in Zamba1, two in Zamba2). This attention has shared weights to minimize the parameter cost of the model. We find that concatenating the original model embeddings to the input to this attention block improves performance, likely due to better maintenance of information across depth. The Zamba2 architecture also applies LoRA projection matrices to the shared MLP to gain some additional expressivity in each block and allow each shared block to specialize slightly to its own unique position while keeping the additional parameter overhead small. 
+Zamba2-2.7B utilizes and extends our original Zamba hybrid SSM-attention architecture. The core Zamba architecture consists of a backbone of Mamba layers interleaved with a shared attention layer. This attention has shared weights to minimize the parameter cost of the model. We find that concatenating the original model embeddings to the input to this attention block improves performance, likely due to better maintenance of information across depth. The Zamba2 architecture also applies LoRA projection matrices to the shared MLP to gain some additional expressivity in each block and allow each shared block to specialize slightly to its own unique position while keeping the additional parameter overhead small. 
 
 <center>
 <img src="https://cdn-uploads.huggingface.co/production/uploads/65c05e75c084467acab2f84a/XrEIEBxd0fqIgh3LyArAV.png" width="300" alt="Zamba architecture">
@@ -62,27 +55,20 @@ Zamba2-2.7B utilizes and extends our original Zamba hybrid SSM-attention archite
 
 ## Performance
 
-Zamba2-2.7B achieves leading and state-of-the-art performance among models of <3B parameters and is competitive with some models of significantly greater size. Moreover, due to its unique hybrid SSM architecture, Zamba2-2.7B achieves extremely low inference latency and rapid generation with a significantly smaller memory footprint than comparable transformer based models. 
+Zamba2-2.7B achieves leading and state-of-the-art performance among models of <3B parameters and is competitive with some models of significantly greater size. Moreover, due to its unique hybrid SSM architecture, Zamba2-2.7B achieves extremely low latency and rapid generation with a significantly smaller memory footprint than comparable transformer based models. 
 
-Zamba2-2.7B's high performance and small inference compute and memory footprint renders it an ideal generalist model for on-device applications.
+Zamba2-2.7B's high performance and small compute and memory footprint renders it an ideal generalist model for on-device applications.
 
 <center>
 <img src="https://cdn-uploads.huggingface.co/production/uploads/65c05e75c084467acab2f84a/U7VD9PYLj3XcEjgV08sP5.png" width="700" alt="Zamba performance">
 </center>
 
+(-/ TODO All eval figure)
 
 <center>
-<img src="https://cdn-uploads.huggingface.co/production/uploads/64e40335c0edca443ef8af3e/3C-JIBxaug-FjkVJF74s1.png" width="700" alt="Zamba performance">
+<img src="https://cdn-uploads.huggingface.co/production/uploads/65c05e75c084467acab2f84a/Y_X1hc4UwXLwrttyQpaxY.png" width="700" alt="Zamba inference and memory cost">
 </center>
 
-Time to First Token (TTFT)             |  Output Generation
-:-------------------------:|:-------------------------:
-![](https://cdn-uploads.huggingface.co/production/uploads/65bc13717c6ad1994b6619e9/BmE8X6tDNVw5OJcbZt8sZ.png)  |  ![](https://cdn-uploads.huggingface.co/production/uploads/65bc13717c6ad1994b6619e9/wECc9cItK1FW1MOMGSLrp.png)
-
-
-<center>
-<img src="https://cdn-uploads.huggingface.co/production/uploads/65bc13717c6ad1994b6619e9/nhoss41xlzfEBZzcQXI6z.png" width="700" alt="Zamba inference and memory cost">
-</center>
 
 ## Notice
 
