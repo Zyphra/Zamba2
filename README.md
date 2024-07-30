@@ -70,9 +70,8 @@ Zamba2-2.7B's high performance and small inference compute and memory footprint 
 <img src="https://cdn-uploads.huggingface.co/production/uploads/65c05e75c084467acab2f84a/U7VD9PYLj3XcEjgV08sP5.png" width="700" alt="Zamba performance">
 </center>
 
-
 <center>
-<img src="https://cdn-uploads.huggingface.co/production/uploads/64e40335c0edca443ef8af3e/3C-JIBxaug-FjkVJF74s1.png" width="800" alt="Zamba performance">
+<img src="https://cdn-uploads.huggingface.co/production/uploads/65bc13717c6ad1994b6619e9/3u8k7tcRi-oC_ltGhdHAk.png" width="800" alt="Zamba evals">
 </center>
 
 Time to First Token (TTFT)             |  Output Generation
