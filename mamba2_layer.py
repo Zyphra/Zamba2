@@ -124,7 +124,7 @@ class Mamba2Layer(nn.Module):
 
         assert A_init_range[0] > 0 and A_init_range[1] >= A_init_range[0]
         A = torch.empty(self.nheads, dtype=torch.float32).uniform_(*A_init_range)
-        A_log = torch.log(A).to(dtype=self.in_proj[0].weight.dtype)
+        A_log = torch.log(A).to(dtype=torch.bfloat16)
         self.A_log = nn.Parameter(A_log)
         self.A_log._no_weight_decay = True
 
@@ -316,7 +316,7 @@ class Mamba2Layer(nn.Module):
         out = self.out_proj(y)
         return out.unsqueeze(1), conv_state, ssm_state
 
-    def allocate_inference_cache(self, batch_size, max_seqlen, dtype=None, **kwargs):
+    def allocate_inference_cache(self, batch_size, max_seqlen, dtype=torch.bfloat16, **kwargs):
         device = self.out_proj.weight.device
         conv_dtype = self.conv1d.weight.dtype if dtype is None else dtype
         conv_state = torch.zeros(
@@ -345,7 +345,7 @@ class Mamba2Layer(nn.Module):
                 self.headdim,
                 self.d_state,
                 device=self.in_proj[0].weight.device,
-                dtype=self.in_proj[0].weight.dtype,
+                dtype=torch.bfloat16,
             )
             inference_params.key_value_memory_dict_mamba[self.layer_idx] = (conv_state, ssm_state)
         else:
