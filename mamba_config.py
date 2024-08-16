@@ -54,6 +54,8 @@ class MambaConfig():
     use_low_rank_mamba_proj: bool = False
     num_shared_mamba_proj: int = 1
     mamba_lora_rank: int = 1
+    use_shared_attention_lora: bool = False
+    rope_theta: int = 10000
     
     
 

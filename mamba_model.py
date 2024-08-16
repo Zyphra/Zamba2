@@ -122,6 +122,10 @@ class MambaModel(nn.Module):
         NUM_MEM_BLOCKS =2
         json_config = load_config_hf(model_name)
         state_dict = load_state_dict_hf(model_name)
+        if "num_mem_blocks" in json_config.keys():
+            num_mem_blocks = json_config["num_mem_blocks"]
+        else:
+            num_mem_blocks = NUM_MEM_BLOCKS
         config = MambaConfig(
         num_layers = json_config["num_hidden_layers"],
         hidden_size = json_config["hidden_size"],
@@ -141,7 +145,7 @@ class MambaModel(nn.Module):
         kv_channels = json_config["kv_channels"],
         ffn_hidden_size = json_config["ffn_hidden_size"],
         vocab_size = json_config["vocab_size"],
-        num_mem_blocks = NUM_MEM_BLOCKS,
+        num_mem_blocks = num_mem_blocks,
         )
         model = MambaModel(config = config, max_sequence_length = 4096)
         model.load_state_dict(state_dict)

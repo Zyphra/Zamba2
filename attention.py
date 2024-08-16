@@ -36,7 +36,7 @@ class CausalSelfAttention(nn.Module):
                                                              attention_dropout=0.0, layer_number=layer_number, 
                                                              attn_mask_type="no_mask")
 
-        if self.config.use_shared_block_lora and 0 == 1:
+        if self.config.use_shared_attention_lora:
             self.linear_q_lora_A_list = nn.ParameterList([])
             self.linear_q_lora_B_list = nn.ParameterList([])
             self.linear_k_lora_A_list = nn.ParameterList([])
@@ -153,7 +153,7 @@ class CausalSelfAttention(nn.Module):
             )
             
             
-            if self.config.use_shared_block_lora and 0 == 1:
+            if self.config.use_shared_attention_lora:
                 new_lora_tensor_shape = new_tensor_shape[:-1] + (-1,)
                 linear_q_lora_A = self.linear_q_lora_A_list[forward_layer_idx]
                 linear_q_lora_B = self.linear_q_lora_B_list[forward_layer_idx]
