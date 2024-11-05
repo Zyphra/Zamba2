@@ -1,11 +1,57 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Union
-import transformer_engine.pytorch as te
 
 import torch
 from rotary import *
 from enums import AttnMaskType
+
+class CustomDotProductAttention(nn.Module):
+    def __init__(self, num_attention_heads, kv_channels, attention_dropout=0.0, causal=False):
+        super().__init__()
+        self.num_attention_heads = num_attention_heads
+        self.kv_channels = kv_channels
+        self.attention_dropout = nn.Dropout(attention_dropout)
+        self.causal = causal
+        self.scaling = 1.0 / math.sqrt(kv_channels)
+        self.cached_causal_mask = None
+        self.last_seq_len = None
+
+    def _get_causal_mask(self, seq_len, device):
+        if self.last_seq_len != seq_len or self.cached_causal_mask is None:
+            self.cached_causal_mask = torch.triu(
+                torch.ones(seq_len, seq_len, dtype=torch.bool, device=device),
+                diagonal=1
+            )
+            self.last_seq_len = seq_len
+        return self.cached_causal_mask
+
+    def forward(self, query, key, value):
+        # Shape checks
+        assert query.dim() == 4, f"Expected 4D tensor, got {query.dim()}D"
+        seq_len, batch_size, num_heads, head_dim = query.shape
+        assert num_heads == self.num_attention_heads, f"Expected {self.num_attention_heads} heads, got {num_heads}"
+        
+        # Compute attention scores
+        attention_scores = torch.matmul(query, key.transpose(-2, -1)) * self.scaling
+
+        # Apply causal mask if needed
+        if self.causal:
+            causal_mask = self._get_causal_mask(seq_len, query.device)
+            attention_scores.masked_fill_(
+                causal_mask.unsqueeze(1).unsqueeze(1), 
+                float('-inf')
+            )
+
+        # Apply softmax and dropout
+        attention_probs = F.softmax(attention_scores, dim=-1, dtype=torch.float32)
+        attention_probs = attention_probs.to(query.dtype)  # Cast back to original dtype
+        attention_probs = self.attention_dropout(attention_probs)
+
+        # Compute output
+        output = torch.matmul(attention_probs, value)
+        
+        return output
 
 class CausalSelfAttention(nn.Module):
 
@@ -25,16 +71,18 @@ class CausalSelfAttention(nn.Module):
         self.hidden_size_per_attention_head = self.query_projection_size // self.config.num_attention_heads
         self.num_attention_heads_per_partition = self.config.num_attention_heads
         self.num_query_groups_per_partition = self.config.num_query_groups
-        self.dpa = te.DotProductAttention(num_attention_heads=self.config.num_attention_heads, 
-                                                  kv_channels=self.config.kv_channels, 
-                                                  attention_dropout=0.0, 
-                                                  layer_number=layer_number, 
-                                                  attn_mask_type="causal"
-                                                  )
-        self.dpa_generation = te.DotProductAttention(num_attention_heads=self.config.num_attention_heads, 
-                                                             kv_channels =self.config.kv_channels, 
-                                                             attention_dropout=0.0, layer_number=layer_number, 
-                                                             attn_mask_type="no_mask")
+        self.dpa = CustomDotProductAttention(
+            num_attention_heads=self.config.num_attention_heads,
+            kv_channels=self.config.kv_channels,
+            attention_dropout=0.0,
+            causal=True
+        )
+        self.dpa_generation = CustomDotProductAttention(
+            num_attention_heads=self.config.num_attention_heads,
+            kv_channels=self.config.kv_channels,
+            attention_dropout=0.0,
+            causal=False
+        )
 
         if self.config.use_shared_attention_lora:
             self.linear_q_lora_A_list = nn.ParameterList([])
