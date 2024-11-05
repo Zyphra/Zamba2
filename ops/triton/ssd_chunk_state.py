@@ -9,7 +9,6 @@ import torch.nn.functional as F
 
 import triton
 import triton.language as tl
-from triton.language.extra.libdevice import log1p
 
 from einops import rearrange, repeat
 
@@ -67,7 +66,7 @@ def _chunk_cumsum_fwd_kernel(
         dt_bias = tl.load(dt_bias_ptr + offs_h * stride_dt_bias_head, mask=offs_h < nheads, other=0.0).to(tl.float32)
         dt += dt_bias[:, None]
     if DT_SOFTPLUS:
-        dt = tl.where(dt <= 20.0, log1p(tl.exp(dt)), dt)
+        dt = tl.where(dt <= 20.0, tl.log(1.0 + tl.exp(dt)), dt)
     # As of Triton 2.2.0, tl.clamp is not available yet
     # dt = tl.clamp(dt, dt_min, dt_max)
     dt = tl.minimum(tl.maximum(dt, dt_min), dt_max)
@@ -140,7 +139,7 @@ def _chunk_cumsum_bwd_kernel(
         dt += dt_bias[:, None]
     if DT_SOFTPLUS:
         dt_presoftplus = dt
-        dt = tl.where(dt <= 20.0, log1p(tl.exp(dt)), ddt)
+        dt = tl.where(dt <= 20.0, tl.log(1.0 + tl.exp(dt)), ddt)
     clamp_mask = (dt < dt_min) | (dt > dt_max)
     # As of Triton 2.2.0, tl.clamp is not available yet
     # dt = tl.clamp(dt, dt_min, dt_max)

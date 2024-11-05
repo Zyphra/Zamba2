@@ -30,5 +30,5 @@ dependencies = [
 
 [tool.setuptools]
 packages = ["ops"]
-package-data = {"" = ["*.cu", "*.cpp", "*.h"]}
+package-data = {"ops" = ["*.cu", "*.cpp", "*.h"]}
 exclude = ["csrc", "*.egg-info"]
