@@ -153,6 +153,6 @@ setup(
         "einops",
         "triton",
         "transformers",
-        "causal-conv1d==1.2.0.post2",
+        "causal-conv1d", #==1.2.0.post2
     ],
 )
