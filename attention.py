@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Union
+from typing import Union, Optional
 import math
 
 import torch
@@ -10,51 +10,161 @@ from rotary import *
 from enums import AttnMaskType
 
 class CustomDotProductAttention(nn.Module):
-    def __init__(self, num_attention_heads, kv_channels, attention_dropout=0.0, causal=False):
+    """
+    Memory-efficient dot product attention implementation.
+    Optimized for both training and inference, supporting causal and non-causal attention.
+    """
+    
+    def __init__(
+        self, 
+        num_attention_heads: int,
+        kv_channels: int,
+        attention_dropout: float = 0.0,
+        causal: bool = False
+    ):
         super().__init__()
+        if not isinstance(num_attention_heads, int) or num_attention_heads <= 0:
+            raise ValueError(f"num_attention_heads must be positive integer, got {num_attention_heads}")
+        if not isinstance(kv_channels, int) or kv_channels <= 0:
+            raise ValueError(f"kv_channels must be positive integer, got {kv_channels}")
+        if not 0.0 <= attention_dropout < 1.0:
+            raise ValueError(f"attention_dropout must be in [0.0, 1.0), got {attention_dropout}")
+
         self.num_attention_heads = num_attention_heads
         self.kv_channels = kv_channels
-        self.attention_dropout = nn.Dropout(attention_dropout)
+        self.dropout_p = attention_dropout
         self.causal = causal
-        self.scaling = 1.0 / torch.sqrt(torch.tensor(kv_channels, dtype=torch.bfloat16))
-        self.cached_causal_mask = None
-        self.last_seq_len = None
+        
+        # Register scaling factor - use fp32 for numerical stability
+        self.register_buffer(
+            'scale_factor',
+            torch.tensor(1.0 / math.sqrt(kv_channels), dtype=torch.float32),
+            persistent=False
+        )
 
-    def _get_causal_mask(self, seq_len, device):
-        if self.last_seq_len != seq_len or self.cached_causal_mask is None:
-            self.cached_causal_mask = torch.triu(
-                torch.ones(seq_len, seq_len, dtype=torch.bool, device=device),
+    def _check_inputs(self, query: torch.Tensor, key: torch.Tensor, value: torch.Tensor):
+        """Validate input tensors shapes and types."""
+        if query.dim() != 4 or key.dim() != 4 or value.dim() != 4:
+            raise ValueError(
+                f"Expected 4D tensors, got query: {query.dim()}D, key: {key.dim()}D, value: {value.dim()}D"
+            )
+        
+        seq_len_q, batch_size, num_heads_q, head_dim = query.shape
+        seq_len_k, batch_size_k, num_heads_k, _ = key.shape
+        seq_len_v, batch_size_v, num_heads_v, _ = value.shape
+
+        if not (batch_size == batch_size_k == batch_size_v):
+            raise ValueError(f"Batch sizes must match: {batch_size}, {batch_size_k}, {batch_size_v}")
+        
+        if not num_heads_q == self.num_attention_heads:
+            raise ValueError(f"Query heads {num_heads_q} != expected heads {self.num_attention_heads}")
+        
+        if not head_dim == self.kv_channels:
+            raise ValueError(f"Head dimension {head_dim} != expected {self.kv_channels}")
+        
+        if not (seq_len_k == seq_len_v):
+            raise ValueError(f"Key/Value sequence lengths must match: {seq_len_k}, {seq_len_v}")
+        
+        return seq_len_q, seq_len_k
+
+    def _create_attention_bias(
+        self,
+        L: int,  # query sequence length
+        S: int,  # key sequence length
+        dtype: torch.dtype,
+        device: torch.device,
+        attention_mask: Optional[torch.Tensor] = None,
+        inference_params: Optional[dict] = None,
+    ) -> torch.Tensor:
+        """Create attention bias incorporating causal and attention masks."""
+        # Initialize bias with zeros of proper shape
+        attn_bias = torch.zeros(L, S, dtype=dtype, device=device)
+
+        # Apply causal mask if needed and not in generation mode
+        if self.causal and not (inference_params and inference_params.sequence_len_offset > 0):
+            # Create and apply causal mask efficiently
+            causal_mask = torch.triu(
+                torch.ones(L, S, dtype=torch.bool, device=device), 
                 diagonal=1
             )
-            self.last_seq_len = seq_len
-        return self.cached_causal_mask
+            attn_bias.masked_fill_(causal_mask, float("-inf"))
 
-    def forward(self, query, key, value):
-        # Shape checks
-        assert query.dim() == 4, f"Expected 4D tensor, got {query.dim()}D"
-        seq_len, batch_size, num_heads, head_dim = query.shape
-        assert num_heads == self.num_attention_heads, f"Expected {self.num_attention_heads} heads, got {num_heads}"
+        # Apply attention mask if provided
+        if attention_mask is not None:
+            if attention_mask.dtype == torch.bool:
+                attn_bias.masked_fill_(attention_mask.logical_not(), float("-inf"))
+            else:
+                # Handle additive attention mask
+                attn_bias = attn_bias + attention_mask.to(dtype=dtype)
+
+        return attn_bias
+
+    def forward(
+        self,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        inference_params: Optional[dict] = None,
+    ) -> torch.Tensor:
+        """
+        Compute scaled dot-product attention.
         
-        # Compute attention scores
-        attention_scores = torch.matmul(query, key.transpose(-2, -1)) * self.scaling
+        Args:
+            query: shape [seq_len_q, batch_size, num_heads, head_dim]
+            key: shape [seq_len_kv, batch_size, num_heads, head_dim]
+            value: shape [seq_len_kv, batch_size, num_heads, head_dim]
+            attention_mask: Optional mask tensor
+            inference_params: Optional inference parameters
+        
+        Returns:
+            Output tensor of shape [seq_len_q, batch_size, num_heads, head_dim]
+        """
+        # Input validation
+        L, S = self._check_inputs(query, key, value)
 
-        # Apply causal mask if needed
-        if self.causal:
-            causal_mask = self._get_causal_mask(seq_len, query.device)
-            attention_scores.masked_fill_(
-                causal_mask.unsqueeze(1).unsqueeze(1), 
-                float('-inf')
-            )
+        # Compute attention scores with automatic mixed precision handling
+        scale = self.scale_factor.to(query.dtype)
+        
+        # Efficient attention computation
+        attn_weight = torch.matmul(query, key.transpose(-2, -1))
+        attn_weight = attn_weight * scale
 
-        # Apply softmax and dropout
-        attention_probs = F.softmax(attention_scores, dim=-1, dtype=torch.float32)
-        attention_probs = attention_probs.to(query.dtype)  # Cast back to original dtype
-        attention_probs = self.attention_dropout(attention_probs)
+        # Create attention bias
+        attn_bias = self._create_attention_bias(
+            L, S, 
+            dtype=query.dtype,
+            device=query.device,
+            attention_mask=attention_mask,
+            inference_params=inference_params
+        )
+        
+        # Add bias more efficiently using a single view operation
+        attn_weight = attn_weight + attn_bias.view(L, 1, 1, S)
 
-        # Compute output
-        output = torch.matmul(attention_probs, value)
+        # Compute attention probabilities
+        attn_weight = F.softmax(attn_weight, dim=-1, dtype=torch.float32)
+        
+        # Cast back to input dtype if necessary
+        if attn_weight.dtype != query.dtype:
+            attn_weight = attn_weight.to(query.dtype)
+
+        # Apply dropout during training only
+        if self.training and self.dropout_p > 0:
+            if not (inference_params and getattr(inference_params, 'no_dropout', False)):
+                attn_weight = F.dropout(attn_weight, p=self.dropout_p, training=True)
+
+        # Compute output efficiently
+        output = torch.matmul(attn_weight, value)
         
         return output
+
+    def extra_repr(self) -> str:
+        """Returns a string containing extra information about the module."""
+        return (f'num_attention_heads={self.num_attention_heads}, '
+                f'kv_channels={self.kv_channels}, '
+                f'attention_dropout={self.dropout_p}, '
+                f'causal={self.causal}')
 
 class CausalSelfAttention(nn.Module):
 
@@ -239,9 +349,9 @@ class CausalSelfAttention(nn.Module):
                 
             
             if inference_params is None or inference_params.sequence_len_offset == 0:
-                y = self.dpa(query, key, value)
+                y = self.dpa(query, key, value, attention_mask=attention_mask, inference_params=inference_params)
             else:
-                y = self.dpa_generation(query, key, value)
+                y = self.dpa_generation(query, key, value, attention_mask=attention_mask, inference_params=inference_params)
             
             y = self.linear_proj(y)
             
