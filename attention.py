@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Union
-import transformer_engine as te
+import transformer_engine.pytorch as te
 
 import torch
 from rotary import *
@@ -25,13 +25,13 @@ class CausalSelfAttention(nn.Module):
         self.hidden_size_per_attention_head = self.query_projection_size // self.config.num_attention_heads
         self.num_attention_heads_per_partition = self.config.num_attention_heads
         self.num_query_groups_per_partition = self.config.num_query_groups
-        self.dpa = te.pytorch.DotProductAttention(num_attention_heads=self.config.num_attention_heads, 
+        self.dpa = te.DotProductAttention(num_attention_heads=self.config.num_attention_heads, 
                                                   kv_channels=self.config.kv_channels, 
                                                   attention_dropout=0.0, 
                                                   layer_number=layer_number, 
                                                   attn_mask_type="causal"
                                                   )
-        self.dpa_generation = te.pytorch.DotProductAttention(num_attention_heads=self.config.num_attention_heads, 
+        self.dpa_generation = te.DotProductAttention(num_attention_heads=self.config.num_attention_heads, 
                                                              kv_channels =self.config.kv_channels, 
                                                              attention_dropout=0.0, layer_number=layer_number, 
                                                              attn_mask_type="no_mask")
