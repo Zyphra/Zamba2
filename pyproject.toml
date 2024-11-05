@@ -1,0 +1,34 @@
+[build-system]
+requires = [
+    "setuptools>=64",
+    "wheel",
+    "torch",
+    "ninja",
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "Zamba"
+version = "0.0.1"
+description = "Zamba state space model with global shared attention block"
+readme = "README.md"
+requires-python = ">=3.7"
+license = { text = "MIT" }  # Add your actual license
+authors = [
+    { name = "Stijn Smits", email = "sjssmits@gmail.com" }
+]
+
+dependencies = [
+    "torch",
+    "packaging",
+    "ninja",
+    "einops",
+    "triton",
+    "transformers",
+    "causal-conv1d",
+]
+
+[tool.setuptools]
+packages = ["ops"]
+package-data = {"" = ["*.cu", "*.cpp", "*.h"]}
+exclude = ["csrc", "*.egg-info"]

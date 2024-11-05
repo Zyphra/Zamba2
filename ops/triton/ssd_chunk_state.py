@@ -9,6 +9,7 @@ import torch.nn.functional as F
 
 import triton
 import triton.language as tl
+from triton.language.extra import libdevice
 
 from einops import rearrange, repeat
 
@@ -66,7 +67,7 @@ def _chunk_cumsum_fwd_kernel(
         dt_bias = tl.load(dt_bias_ptr + offs_h * stride_dt_bias_head, mask=offs_h < nheads, other=0.0).to(tl.float32)
         dt += dt_bias[:, None]
     if DT_SOFTPLUS:
-        dt = tl.where(dt <= 20.0, tl.math.log1p(tl.exp(dt)), dt)
+        dt = tl.where(dt <= 20.0, libdevice.log1p(tl.exp(dt)), dt)
     # As of Triton 2.2.0, tl.clamp is not available yet
     # dt = tl.clamp(dt, dt_min, dt_max)
     dt = tl.minimum(tl.maximum(dt, dt_min), dt_max)
@@ -139,7 +140,7 @@ def _chunk_cumsum_bwd_kernel(
         dt += dt_bias[:, None]
     if DT_SOFTPLUS:
         dt_presoftplus = dt
-        dt = tl.where(dt <= 20.0, tl.math.log1p(tl.exp(dt)), ddt)
+        dt = tl.where(dt <= 20.0, libdevice.log1p(tl.exp(dt)), ddt)
     clamp_mask = (dt < dt_min) | (dt > dt_max)
     # As of Triton 2.2.0, tl.clamp is not available yet
     # dt = tl.clamp(dt, dt_min, dt_max)
@@ -340,8 +341,7 @@ def _chunk_state_bwd_dx_kernel(
     ddA_cs = -(ddt * dt_m)
     ddA_cs_last = -tl.sum(ddA_cs)
     ddA_cumsum_ptrs = ddA_cumsum_ptr + offs_m * stride_ddA_cs_csize
-    tl.atomic_add(ddA_cumsum_ptrs, ddA_cs, mask=offs_m < chunk_size)
-    tl.atomic_add(ddA_cumsum_ptr + (chunk_size - 1) * stride_ddA_cs_csize, ddA_cs_last)
+    tl.atomic_add(ddA_cumsum_ptrs, ddA_cs, mask=offs_m < chunk_size - 1)
 
     dx = (acc * dt_m[:, None]).to(dx_ptr.dtype.element_ty)
     dx_ptr += pid_b * stride_dx_batch + pid_c * chunk_size * stride_dx_seqlen + pid_h * stride_dx_head
@@ -525,7 +525,7 @@ def _chunk_state_bwd_ddAcs_stable_kernel(
     # Faster to just do 1 iteration with larger BLOCK_SIZE_K, up to block size 128
     offs_k = tl.arange(0, BLOCK_SIZE_DSTATE if BLOCK_SIZE_DSTATE <= 128 else BLOCK_SIZE_K)
     b_ptrs = b_ptr + (offs_m[:, None] * stride_b_seqlen + offs_k[None, :] * stride_b_dstate)
-    dstates_ptrs = dstates_ptr + (offs_n[None, :] * stride_states_hdim + offs_k[:, None] * stride_states_dstate)
+    dstates_ptrs = dstates_ptr + (offs_n[None, :] * stride_states_dstate + offs_k[:, None] * stride_states_hdim)
     if BLOCK_SIZE_DSTATE <= 128:
         b = tl.load(b_ptrs, mask=(offs_m[:, None] < chunk_size_limit) & (offs_k[None, :] < dstate), other=0.0)
         dstates = tl.load(dstates_ptrs, mask=(offs_k[:, None] < dstate) & (offs_n[None, :] < hdim), other=0.0)
