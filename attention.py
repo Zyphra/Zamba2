@@ -4,6 +4,8 @@ from typing import Union
 import math
 
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 from rotary import *
 from enums import AttnMaskType
 
@@ -14,7 +16,7 @@ class CustomDotProductAttention(nn.Module):
         self.kv_channels = kv_channels
         self.attention_dropout = nn.Dropout(attention_dropout)
         self.causal = causal
-        self.scaling = 1.0 / torch.rsqrt(kv_channels)
+        self.scaling = 1.0 / torch.sqrt(torch.tensor(kv_channels, dtype=torch.float32))
         self.cached_causal_mask = None
         self.last_seq_len = None
 
