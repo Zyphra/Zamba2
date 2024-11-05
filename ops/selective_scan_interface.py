@@ -10,7 +10,7 @@ SELECTIVE_SCAN_CUDA_IMPORT_FAILED = False
 try:
     from causal_conv1d import causal_conv1d_fn
     import causal_conv1d_cuda
-except ImportError:
+except ImportError as e:
     causal_conv1d_fn = None
     causal_conv1d_cuda = None
     SELECTIVE_SCAN_CUDA_IMPORT_FAILED = True
