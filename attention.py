@@ -14,7 +14,7 @@ class CustomDotProductAttention(nn.Module):
         self.kv_channels = kv_channels
         self.attention_dropout = nn.Dropout(attention_dropout)
         self.causal = causal
-        self.scaling = 1.0 / math.sqrt(kv_channels)
+        self.scaling = 1.0 / torch.rsqrt(kv_channels)
         self.cached_causal_mask = None
         self.last_seq_len = None
 
