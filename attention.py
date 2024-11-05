@@ -16,7 +16,7 @@ class CustomDotProductAttention(nn.Module):
         self.kv_channels = kv_channels
         self.attention_dropout = nn.Dropout(attention_dropout)
         self.causal = causal
-        self.scaling = 1.0 / torch.sqrt(torch.tensor(kv_channels, dtype=torch.float32))
+        self.scaling = 1.0 / torch.sqrt(torch.tensor(kv_channels, dtype=torch.bfloat16))
         self.cached_causal_mask = None
         self.last_seq_len = None
 
