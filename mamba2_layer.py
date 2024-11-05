@@ -12,31 +12,38 @@ from mamba_config import MambaConfig
 
 
 try:
+    # Import causal convolution functions if available
     from causal_conv1d import causal_conv1d_fn, causal_conv1d_update
 except ImportError:
     causal_conv1d_fn = None
     causal_conv1d_update = None
     
 
+# Import selective scan functions for Mamba's core computation
 from ops.selective_scan_interface import selective_scan_fn, mamba_inner_fn, SELECTIVE_SCAN_CUDA_IMPORT_FAILED
 
 try:
+    # Import optimized state update kernel
     from ops.triton.selective_state_update import selective_state_update
 except ImportError:
     selective_state_update = None
 
 try:
+    # Import optimized normalization functions
     from ops.triton.layernorm import RMSNorm, layer_norm_fn, rms_norm_fn
 except ImportError:
     RMSNorm, layer_norm_fn, rms_norm_fn = None, None, None
 
 try:
+    # Import optimized state update kernel (duplicate import)
     from ops.triton.selective_state_update import selective_state_update
 except ImportError:
     selective_state_update = None
 
+# Import gated RMSNorm implementation
 from ops.triton.layernorm_gated import RMSNorm as RMSNormGated
 
+# Import optimized scan implementations
 from ops.triton.ssd_combined import mamba_chunk_scan_combined
 from ops.triton.ssd_combined import mamba_split_conv1d_scan_combined
 
@@ -62,6 +69,7 @@ class Mamba2Layer(nn.Module):
         process_group=None,
         sequence_parallel=True,
     ):
+        """Initialize a Mamba layer with the given configuration and parameters"""
         factory_kwargs = {}
         super().__init__()
         self.config = config
@@ -87,13 +95,16 @@ class Mamba2Layer(nn.Module):
         self.use_mem_eff_path = use_mem_eff_path
         self.layer_idx = layer_idx
 
-        # Order: [z, x, B, C, dt]
+        # Input projection dimensions: [z, x, B, C, dt]
         d_in_proj = 2 * self.d_inner + 2 * self.ngroups * self.d_state + self.nheads
         if self.config.use_low_rank_mamba_proj:
+            # Low-rank projection through an intermediate dimension
             self.in_proj = nn.ModuleList([nn.Linear(self.d_model, self.config.mamba_lora_rank), nn.Linear(self.config.mamba_lora_rank, d_in_proj)])
         else:
+            # Direct projection
             self.in_proj = nn.ModuleList([nn.Linear(self.d_model, d_in_proj, bias=self.config.add_bias_linear, **factory_kwargs)])
 
+        # 1D convolution for spatial mixing
         conv_dim = self.d_ssm + 2 * self.ngroups * self.d_state
         self.conv1d = nn.Conv1d(
             in_channels=conv_dim,
@@ -107,36 +118,40 @@ class Mamba2Layer(nn.Module):
         if self.conv_init is not None:
             nn.init.uniform_(self.conv1d.weight, -self.conv_init, self.conv_init)
 
+        # Activation function
         self.act = nn.SiLU()
 
-        # Initialize log dt bias
+        # Initialize time-step (dt) parameters
         dt = torch.exp(
             torch.rand(self.nheads, **factory_kwargs) * (math.log(dt_max) - math.log(dt_min))
             + math.log(dt_min)
         )
         dt = torch.clamp(dt, min=dt_init_floor)
-        # Inverse of softplus: https://github.com/pytorch/pytorch/issues/72759
+        # Inverse of softplus for dt bias initialization
         inv_dt = dt + torch.log(-torch.expm1(-dt))
         self.dt_bias = nn.Parameter(inv_dt)
         # Just to be explicit. Without this we already don't put wd on dt_bias because of the check
         # name.endswith("bias") in param_grouping.py
         self.dt_bias._no_weight_decay = True
 
+        # Initialize A matrix parameters
         assert A_init_range[0] > 0 and A_init_range[1] >= A_init_range[0]
         A = torch.empty(self.nheads, dtype=torch.float32).uniform_(*A_init_range)
         A_log = torch.log(A).to(dtype=torch.bfloat16)
         self.A_log = nn.Parameter(A_log)
         self.A_log._no_weight_decay = True
 
-        # D "skip" parameter
+        # Initialize D (skip connection) parameters
         self.D = nn.Parameter(torch.ones(self.d_ssm if self.D_has_hdim else self.nheads))
         self.D._no_weight_decay = True
 
+        # Initialize normalization layer
         if self.rmsnorm:
             assert RMSNormGated is not None
             self.norm = RMSNormGated(self.d_ssm, eps=1e-5, norm_before_gate=self.norm_before_gate,
                                      group_size=self.d_ssm // self.ngroups, **factory_kwargs)
 
+        # Output projection
         self.out_proj = nn.Linear(self.d_inner, self.d_model, bias=self.config.add_bias_linear, **factory_kwargs)
 
 
@@ -156,6 +171,7 @@ class Mamba2Layer(nn.Module):
             batch_seqlen, dim = u.shape
             batch = batch_seqlen // seqlen
 
+        # Get cached states for inference
         conv_state, ssm_state = None, None
         if inference_params is not None:
             conv_state, ssm_state = self._get_states_from_cache(inference_params, batch)
@@ -164,6 +180,7 @@ class Mamba2Layer(nn.Module):
                 out, _, _ = self.step(u, conv_state, ssm_state)
                 return out
 
+        # Input projection
         if from_shared_proj is not None and self.config.use_low_rank_mamba_proj:
             zxbcdt = self.in_proj[1](self.in_proj[0](u))  # (B, L, d_in_proj) or (B * L, d_in_proj)
             zxbcdt += from_shared_proj
@@ -173,6 +190,8 @@ class Mamba2Layer(nn.Module):
             zxbcdt = rearrange(zxbcdt, "(b l) d -> b l d", l=seqlen)
         A = -torch.exp(self.A_log)  # (nheads) or (d_inner, d_state)
         dt_limit_kwargs = {} if self.dt_limit == (0.0, float("inf")) else dict(dt_limit=self.dt_limit)
+        
+        # Memory efficient path for training
         if self.use_mem_eff_path and inference_params is None:
             out = mamba_split_conv1d_scan_combined(
                 zxbcdt,
@@ -195,18 +214,25 @@ class Mamba2Layer(nn.Module):
             )
             if seqlen_og is not None:
                 out = rearrange(out, "b l d -> (b l) d")
+                
+        # Standard path for inference or when memory efficient path is disabled
         else:
+            # Split input projection into components
             d_mlp = (zxbcdt.shape[-1] - 2 * self.d_ssm - 2 * self.ngroups * self.d_state - self.nheads) // 2
             z0, x0, z, xBC, dt = torch.split(
                 zxbcdt,
                 [d_mlp, d_mlp, self.d_ssm, self.d_ssm + 2 * self.ngroups * self.d_state, self.nheads],
                 dim=-1
             )
+            
+            # Update convolution state for inference
             if conv_state is not None:
                 # If we just take xBC[:, :, -self.d_conv :], it will error if seqlen < self.d_conv
                 # Instead F.pad will pad with zeros if seqlen < self.d_conv, and truncate otherwise.
                 xBC_t = rearrange(xBC, "b l d -> b d l")
                 conv_state.copy_(F.pad(xBC_t, (self.d_conv - xBC_t.shape[-1], 0)))  # Update state (B D W)
+                
+            # Apply 1D convolution
             assert self.activation in ["silu", "swish"]
             if causal_conv1d_fn is None or self.activation not in ["silu", "swish"]:
                 xBC = self.act(
@@ -219,6 +245,8 @@ class Mamba2Layer(nn.Module):
                     bias=self.conv1d.bias,
                     activation=self.activation,
                 ).transpose(1, 2)
+                
+            # Split convolution output and apply SSM
             x, B, C = torch.split(xBC, [self.d_ssm, self.ngroups * self.d_state, self.ngroups * self.d_state], dim=-1)
             y = mamba_chunk_scan_combined(
                 rearrange(x, "b l (h p) -> b l h p", p=self.headdim),
@@ -235,9 +263,13 @@ class Mamba2Layer(nn.Module):
                 **dt_limit_kwargs,
                 return_final_states=ssm_state is not None,
             )
+            
+            # Update SSM state for inference
             if ssm_state is not None:
                 y, last_state = y
                 ssm_state.copy_(last_state)
+                
+            # Reshape output and apply normalization
             y = rearrange(y, "b l h p -> b l (h p)")
             if self.rmsnorm:
                 y = self.norm(y, z)
@@ -250,6 +282,17 @@ class Mamba2Layer(nn.Module):
         return out
 
     def step(self, hidden_states, conv_state, ssm_state):
+        """
+        Single step forward for inference.
+        
+        Args:
+            hidden_states: Input tensor for current step
+            conv_state: Cached convolution state
+            ssm_state: Cached SSM state
+            
+        Returns:
+            Tuple of (output, updated conv_state, updated ssm_state)
+        """
         dtype = hidden_states.dtype
         assert hidden_states.shape[1] == 1, "Only support decoding with 1 token at a time for now"
         zxbcdt = self.in_proj[0](hidden_states.squeeze(1))  # (B 2D)
@@ -317,6 +360,17 @@ class Mamba2Layer(nn.Module):
         return out.unsqueeze(1), conv_state, ssm_state
 
     def allocate_inference_cache(self, batch_size, max_seqlen, dtype=torch.bfloat16, **kwargs):
+        """
+        Allocate cache tensors for inference.
+        
+        Args:
+            batch_size: Batch size
+            max_seqlen: Maximum sequence length
+            dtype: Data type for the cache tensors
+            
+        Returns:
+            Tuple of (conv_state, ssm_state) cache tensors
+        """
         device = self.out_proj.weight.device
         conv_dtype = self.conv1d.weight.dtype if dtype is None else dtype
         conv_state = torch.zeros(
@@ -329,6 +383,17 @@ class Mamba2Layer(nn.Module):
         return conv_state, ssm_state
 
     def _get_states_from_cache(self, inference_params, batch_size, initialize_states=False):
+        """
+        Get cached states from inference parameters.
+        
+        Args:
+            inference_params: Parameters containing the cache
+            batch_size: Batch size
+            initialize_states: Whether to initialize states if not found
+            
+        Returns:
+            Tuple of (conv_state, ssm_state) from cache
+        """
         assert self.layer_idx is not None
         if self.layer_idx not in inference_params.key_value_memory_dict_mamba:
             batch_shape = (batch_size,)

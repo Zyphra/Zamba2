@@ -89,28 +89,43 @@ class MambaConfig():
 
 
     def __post_init__(self):
+        # Print initial configuration
+        print("\n=== Initializing MambaConfig ===")
+        print(f"Model type: {self.base_model_type}")
+        print(f"Num layers: {self.num_layers}")
+        print(f"Hidden size: {self.hidden_size}")
+        print(f"State size: {self.state_size}")
+        print(f"Vocab size: {self.vocab_size}")
 
+        # Force attention softmax to be in fp32 if query/key layer scaling is enabled
         if self.apply_query_key_layer_scaling:
             self.attention_softmax_in_fp32 = True
 
+        # Set default FFN hidden size if not provided
         if self.ffn_hidden_size is None:
             self.ffn_hidden_size = 4 * self.hidden_size
             
+        # Set default KV channels based on attention heads
         if self.kv_channels is None and self.num_attention_heads is not None:
             self.kv_channels = self.hidden_size // self.num_attention_heads
         
+        # Set default memory KV channels based on memory heads
         if self.kv_mem_channels is None and self.num_mem_heads > 0:
             self.kv_mem_channels = self.hidden_size // self.num_mem_heads
 
+        # Set default query groups if not specified
         if self.num_query_groups is None:
             self.num_query_groups = self.num_attention_heads
 
+        # Set default memory query groups if not specified
         if self.num_mem_query_groups is None:
             self.num_mem_query_groups = self.num_mem_heads
 
+        # Force attention softmax to be in fp32 if query/key layer scaling is enabled
         if self.apply_query_key_layer_scaling:
             self.attention_softmax_in_fp32 = True
 
+        # Validate bias gelu fusion settings
         if self.bias_gelu_fusion:
             if not self.add_bias_linear:
                 raise ValueError(
@@ -120,6 +135,7 @@ class MambaConfig():
             if self.activation_func != F.gelu:
                 raise ValueError(f'When bias_gelu_fusion is True, activation_func must be F.gelu.')
 
+        # Set default initialization methods
         if self.init_method is None:
             self.init_method = init_method_normal(self.init_method_std)
 
@@ -127,3 +143,10 @@ class MambaConfig():
             self.output_layer_init_method = scaled_init_method_normal(
                 self.init_method_std, self.num_layers
             )
+
+        # Print derived configuration
+        print(f"\nDerived configuration:")
+        print(f"FFN hidden size: {self.ffn_hidden_size}")
+        print(f"KV channels: {self.kv_channels}")
+        print(f"Num query groups: {self.num_query_groups}")
+        print("=== MambaConfig Initialization Complete ===\n")

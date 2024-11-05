@@ -365,10 +365,14 @@ def count_mem_blocks_in_config(config):
     return num_gs
 
 def create_block(config, layer_idx):
+    # Print block creation info
+    print(f"\nCreating block for layer {layer_idx}")
+    
     factory_kwargs = {}
     
-    
     if layer_idx == -1:
+        # Creating memory block
+        print("Creating memory block")
         num_gs = count_mem_blocks_in_config(config)
         norm_cls = partial(RMSNorm, eps=config.layernorm_epsilon, dtype=torch.float32)
         sa_cls = partial(CausalSelfAttention, **factory_kwargs, layer_number=-1, num_mem_blocks=num_gs)
@@ -382,6 +386,8 @@ def create_block(config, layer_idx):
             layer_idx=layer_idx
         )
     else: 
+        # Creating regular block
+        print(f"Creating regular block with mapping: {config.layer_mapping[layer_idx-1] if config.layer_mapping else 'None'}")
         norm_cls = partial(nn.LayerNorm if not config.rms_norm else RMSNorm, eps=config.layernorm_epsilon)
         
         if (not config.layer_mapping) or config.layer_mapping[layer_idx-1][0] == 'r' or config.layer_mapping[layer_idx-1][0] == 'g':
@@ -527,6 +533,9 @@ class MambaDecoder(nn.Module):
         self.input_tensor = input_tensor
 
     def forward(self, hidden_states, residual = None, inference_params=None, attention_mask=None):
+        # Print start of forward pass
+        print("\n=== MambaDecoder Forward Start ===")
+        print(f"Input shape: {hidden_states.shape}")
 
         if not self.pre_process:
             hidden_states = self.input_tensor
@@ -546,8 +555,13 @@ class MambaDecoder(nn.Module):
                 else:
                     rotary_seq_len = hidden_states.shape[1]
                 rotary_pos_emb = self.rotary_pos_emb(rotary_seq_len)
+            
+            # Process each layer
             for i, layer in enumerate(self.layers):
+                print(f"\nProcessing layer {i+1}/{len(self.layers)}")
+                
                 if self.config.num_mem_heads > 0:
+                    print(f"Memory heads active, block count: {block_count}")
                     if (i%2 == 1 if (self.layer_mapping is None) else self.layer_mapping[i] == 'g'):
                         from_tf = self.block_map[i](
                             self.blocks[block_count % self.config.num_mem_blocks](
@@ -557,9 +571,12 @@ class MambaDecoder(nn.Module):
                         block_count += 1
                     else:
                         from_tf, _ = (None, None)
+                
                 from_shared_proj = None
                 if self.config.use_low_rank_mamba_proj:
+                    print("Using low rank projection")
                     from_shared_proj = self.in_projs[i % self.config.num_shared_mamba_proj](hidden_states)
+                
                 hidden_states, residual = layer(
                     hidden_states=hidden_states,
                     from_shared_proj=from_shared_proj,
@@ -568,8 +585,10 @@ class MambaDecoder(nn.Module):
                     inference_params=inference_params,
                     attention_mask = attention_mask,
                 )
+                print(f"After layer {i+1} shape: {hidden_states.shape}")
 
         if self.post_process and self.post_layer_norm:
+            print("Applying final layer norm")
             if not self.config.fused_add_norm:
                 residual = (hidden_states + residual) if residual is not None else hidden_states
                 hidden_states = self.final_layernorm(residual.to(dtype=self.final_layernorm.weight.dtype))
@@ -585,4 +604,5 @@ class MambaDecoder(nn.Module):
                     residual_in_fp32=self.residual_in_fp32,
                 )
 
+        print("=== MambaDecoder Forward End ===\n")
         return hidden_states

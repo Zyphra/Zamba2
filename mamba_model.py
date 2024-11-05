@@ -92,29 +92,42 @@ class MambaModel(nn.Module):
         labels: Tensor = None,
         inference_params=None,
     ) -> Tensor:
+        # Print input shape for debugging
+        print("\n=== MambaModel Forward Start ===")
+        print(f"Input IDs shape: {input_ids.shape}")
 
         if decoder_input is not None:
+            # Use provided decoder input directly
+            print("Using provided decoder input")
             pass
         elif self.pre_process:
-            
+            # Convert input IDs to embeddings
             decoder_input = self.embedding(input_ids)
+            print(f"After embedding shape: {decoder_input.shape}")
             
+            # Permute dimensions for decoder
             decoder_input = decoder_input.permute(1,0,2)
+            print(f"After permute shape: {decoder_input.shape}")
         else:
             decoder_input = None
-            
+            print("No decoder input created")
 
+        # Pass through decoder
         hidden_states = self.decoder(
             hidden_states=decoder_input,
             residual=None,
             inference_params=inference_params,
         )
-        
+        print(f"After decoder shape: {hidden_states.shape}")
         
         if not self.post_process:
+            print("Skipping post processing")
             return hidden_states
         
+        # Project to vocabulary size
         logits = hidden_states @ self.embedding.weight.T
+        print(f"Final logits shape: {logits.shape}")
+        print("=== MambaModel Forward End ===\n")
         return logits.contiguous()
 
     @classmethod
