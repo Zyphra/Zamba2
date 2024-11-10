@@ -75,7 +75,7 @@ class Mamba2Layer(nn.Module):
         assert self.d_inner == self.expand * self.d_model
         self.headdim = config.mamba_headdim
         self.d_ssm = self.d_inner if d_ssm is None else d_ssm 
-        self.ngroups = 1
+        self.ngroups = self.config.mamba_ngroups
         assert self.d_ssm % self.headdim == 0
         self.nheads = self.d_ssm // self.headdim
         self.D_has_hdim = D_has_hdim

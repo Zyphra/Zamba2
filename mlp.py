@@ -9,10 +9,10 @@ from mamba_config import MambaConfig
 
 class MLP(nn.Module):
 
-    def __init__(self, config: MambaConfig,is_expert: bool = False, layer_idx=None, num_mem_blocks = None):
+    def __init__(self, config: MambaConfig,is_expert: bool = False, layer_idx=None, num_gs = None):
         super().__init__()
 
-        self.num_mem_blocks = num_mem_blocks
+        self.num_gs = num_gs
         
         self.config: MambaConfig = config
         self.layer = layer_idx
@@ -43,7 +43,7 @@ class MLP(nn.Module):
             self.linear_fc1_lora_A_list = nn.ParameterList([])
             self.linear_fc1_lora_B_list = nn.ParameterList([])
             
-            for i in range(self.num_mem_blocks):
+            for i in range(self.num_gs):
                 linear_fc1_lora_A = nn.Linear(self.config.hidden_size, self.config.lora_rank, bias = False)
                 linear_fc1_lora_B = nn.Linear(self.config.lora_rank, ffn_hidden_size_1, bias = False)
                 self.linear_fc1_lora_A_list.append(linear_fc1_lora_A)

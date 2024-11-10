@@ -9,7 +9,7 @@ from enums import AttnMaskType
 
 class CausalSelfAttention(nn.Module):
 
-    def __init__(self, config, layer_number, attn_mask_type=AttnMaskType.padding, **kwargs):
+    def __init__(self, config, layer_number, num_gs, attn_mask_type=AttnMaskType.padding, **kwargs):
         super().__init__()
         assert config.hidden_size % config.num_mem_heads == 0
         self.config = config
@@ -17,10 +17,11 @@ class CausalSelfAttention(nn.Module):
         self.linear_proj = nn.Linear(2 * config.hidden_size, config.hidden_size, bias=config.add_bias_linear)
         self.n_head = config.num_mem_heads
         self.n_embd = config.hidden_size * 2
-        self.query_projection_size = self.config.kv_channels * self.config.num_attention_heads
+        self.query_projection_size = self.config.kv_channels * self.config.num_attention_heads 
         self.kv_projection_size = self.config.kv_channels * self.config.num_query_groups
         world_size = 1
         self.world_size = world_size
+        self.num_gs = num_gs
 
         self.hidden_size_per_attention_head = self.query_projection_size // self.config.num_attention_heads
         self.num_attention_heads_per_partition = self.config.num_attention_heads
@@ -44,12 +45,12 @@ class CausalSelfAttention(nn.Module):
             self.linear_v_lora_A_list = nn.ParameterList([])
             self.linear_v_lora_B_list = nn.ParameterList([])
             
-            for i in range(self.num_mem_blocks):
+            for i in range(self.num_gs):
                 linear_q_lora_A = nn.Linear(2 * self.config.hidden_size,  self.config.lora_rank, bias = False)
                 linear_q_lora_B = nn.Linear(self.config.lora_rank, 2 * self.query_projection_size, bias = False)
                 self.linear_q_lora_A_list.append(linear_q_lora_A)
                 self.linear_q_lora_B_list.append(linear_q_lora_B)
-                linear_k_lora_A = nn.Linear(self.config.hidden_size,self.config.lora_rank,bias = False)
+                linear_k_lora_A = nn.Linear(2 * self.config.hidden_size,self.config.lora_rank,bias = False)
                 linear_k_lora_B = nn.Linear(self.config.lora_rank, 2 * self.kv_projection_size, bias = False)
                 self.linear_k_lora_A_list.append(linear_k_lora_A)
                 self.linear_k_lora_B_list.append(linear_k_lora_B)

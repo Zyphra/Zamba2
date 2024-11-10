@@ -371,8 +371,8 @@ def create_block(config, layer_idx):
     if layer_idx == -1:
         num_gs = count_mem_blocks_in_config(config)
         norm_cls = partial(RMSNorm, eps=config.layernorm_epsilon, dtype=torch.float32)
-        sa_cls = partial(CausalSelfAttention, **factory_kwargs, layer_number=-1, num_mem_blocks=num_gs)
-        mlp_cls = partial(MLP, layer_idx=layer_idx, **factory_kwargs, num_mem_blocks = num_gs)
+        sa_cls = partial(CausalSelfAttention, **factory_kwargs, layer_number=-1, num_gs=num_gs)
+        mlp_cls = partial(MLP, layer_idx=layer_idx, **factory_kwargs, num_gs = num_gs)
         block = vBlock(
             config,
             sa_cls=sa_cls,

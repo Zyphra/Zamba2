@@ -3,12 +3,21 @@ from mamba_config import MambaConfig
 import torch
 from transformers import AutoTokenizer
 
+from transformers import AutoTokenizer, AutoModelForCausalLM
+import torch
 
+
+#tokenizer = AutoTokenizer.from_pretrained("Zyphra/Zamba2-2.7B")
 tokenizer = AutoTokenizer.from_pretrained("Zyphra/Zamba2-2.7B")
+#tokenizer = AutoTokenizer.from_pretrained("Zyphra/Zamba2-7B")
 input_text = 'A funny prompt would be '
 input_ids = tokenizer(input_text, return_tensors="pt").to("cuda")["input_ids"].transpose(0,1)
-model = MambaModel.from_pretrained(model_name = "Zyphra/Zamba2-2.7B").cuda().half()
-tokens_to_generate = 20
+#model = MambaModel.from_pretrained(model_name = "Zyphra/Zamba2-2.7B").cuda().half()
+#model = MambaModel.from_pretrained(model_name = "Zyphra/Zamba2-1.2B").cuda().half()
+model = MambaModel.from_pretrained(model_name = "Zyphra/Zamba2-1.2B-Instruct").cuda().half()
+tokens_to_generate = 200
+
+#model_hf = AutoModelForCausalLM.from_pretrained("Zyphra/Zamba2-1.2B-Instruct", device_map="cuda", torch_dtype=torch.bfloat16)
 
 model.eval()
 with torch.no_grad():

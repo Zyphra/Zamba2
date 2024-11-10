@@ -119,13 +119,17 @@ class MambaModel(nn.Module):
 
     @classmethod
     def from_pretrained(cls, model_name, **kwargs):
-        NUM_MEM_BLOCKS =2
+        num_mem_blocks =2
+        mamba_ngroups = 1
+        use_shared_attention_lora = False
         json_config = load_config_hf(model_name)
         state_dict = load_state_dict_hf(model_name)
         if "num_mem_blocks" in json_config.keys():
             num_mem_blocks = json_config["num_mem_blocks"]
-        else:
-            num_mem_blocks = NUM_MEM_BLOCKS
+        if "mamba_ngroups" in json_config.keys():
+            mamba_ngroups = json_config["mamba_ngroups"]
+        if "use_shared_attention_lora" in json_config.keys():
+            use_shared_attention_lora = json_config["use_shared_attention_lora"]
         config = MambaConfig(
         num_layers = json_config["num_hidden_layers"],
         hidden_size = json_config["hidden_size"],
@@ -137,6 +141,7 @@ class MambaModel(nn.Module):
         num_attention_heads = json_config["num_attention_heads"],
         num_mem_heads = json_config["num_attention_heads"],
         mamba_headdim = json_config["mamba_headdim"],
+        mamba_ngroups = mamba_ngroups,
         layer_mapping = json_config["layers_block_type"],
         add_bias_linear = json_config["add_bias_linear"],
         use_shared_block_lora = json_config["use_shared_block_lora"],
@@ -146,7 +151,44 @@ class MambaModel(nn.Module):
         ffn_hidden_size = json_config["ffn_hidden_size"],
         vocab_size = json_config["vocab_size"],
         num_mem_blocks = num_mem_blocks,
+        #num_key_value_heads = json_config["num_key_value_heads"],
+        num_query_groups = json_config["num_query_groups"],
+        use_shared_attention_lora = use_shared_attention_lora,
+        use_mem_rope = json_config["use_mem_rope"],
         )
+        if model_name != "Zyphra/Zamba2-2.7B":
+            g_indices = []
+            for i,el in enumerate(json_config["layers_block_type"]):
+                if el == "g":
+                    g_indices.append(i)
+            i = 0
+            #die
+            for k in list(state_dict.keys()):
+                new_k = k.replace("model","decoder").replace("mamba_layers","layers").replace("mamba","mixer").replace("input_layernorm","norm").replace("linear_layers","block_map").replace("feed_forward","mlp.mixer").replace("self_attn.o_proj","sa.mixer.linear_proj").replace("pre_ff_layernorm","mlp.norm").replace("in_proj","in_proj.0").replace("self_attn.linear_q","sa.mixer.linear_q").replace("self_attn.linear_k","sa.mixer.linear_k").replace("self_attn.linear_v","sa.mixer.linear_v")
+                #print("NUM MEM BLOCKS: ", num_mem_blocks)
+                for i in range(num_mem_blocks):
+                    new_k = new_k.replace("decoder.blocks." + str(i) + ".norm.weight","decoder.blocks." + str(i) + ".sa.norm.weight")
+                #new_k = new_k.replace("decoder.blocks.1.norm.weight","decoder.blocks.1.sa.norm.weight")
+                if "block_map" in new_k:
+                    block_idx = int(new_k.split("block_map.")[1].split(".")[0])
+                    i +=1
+                    new_idx = g_indices[block_idx]
+                    new_k = new_k.replace(str(block_idx), str(new_idx))
+                state_dict[new_k] = state_dict[k]
+                del state_dict[k]
+            state_dict["embedding.weight"] = state_dict["decoder.embed_tokens.weight"]
+            del state_dict["decoder.embed_tokens.weight"]
+
+            # merge QKV together manually
+            for i in range(num_mem_blocks): 
+                q = state_dict["decoder.blocks." + str(i) + ".self_attn.q_proj.weight"]
+                k = state_dict["decoder.blocks." + str(i) + ".self_attn.k_proj.weight"]
+                v = state_dict["decoder.blocks." + str(i) + ".self_attn.v_proj.weight"]
+                qkv = torch.concat([q,k,v], dim=0)
+                state_dict["decoder.blocks."+str(i)+".sa.mixer.linear_qkv.weight"] = qkv
+                del state_dict["decoder.blocks." + str(i) + ".self_attn.q_proj.weight"]
+                del state_dict["decoder.blocks." + str(i) + ".self_attn.k_proj.weight"]
+                del state_dict["decoder.blocks." + str(i) + ".self_attn.v_proj.weight"]
         model = MambaModel(config = config, max_sequence_length = 4096)
         model.load_state_dict(state_dict)
         return model
