@@ -39,3 +39,15 @@ def load_state_dict_hf(model_name, device=None, dtype=None):
             archive_files.append(resolved_archive_file)
         return state_dict
     
+def HF_QKV_Inverse_Transform(q, k, v,num_heads):
+    d_model = q.shape[0]
+    head_dim = d_model // num_heads
+
+    q = q.reshape(num_heads, head_dim, -1)
+    k = k.reshape(num_heads, head_dim, -1)
+    v = v.reshape(num_heads, head_dim, -1)
+
+    mixed_qkv = torch.cat((q, k, v), dim=1)
+    mixed_qkv = mixed_qkv.reshape(3 * d_model, -1)
+
+    return mixed_qkv

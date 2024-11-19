@@ -8,13 +8,14 @@ import torch
 
 
 #tokenizer = AutoTokenizer.from_pretrained("Zyphra/Zamba2-2.7B")
-tokenizer = AutoTokenizer.from_pretrained("Zyphra/Zamba2-2.7B")
+tokenizer = AutoTokenizer.from_pretrained("Zyphra/Zamba2-7B-Instruct")
 #tokenizer = AutoTokenizer.from_pretrained("Zyphra/Zamba2-7B")
 input_text = 'A funny prompt would be '
+input_text = '<im_start>user\nWhat is the meaning of life?<im_end>\n<im_start>assistant:\n'
 input_ids = tokenizer(input_text, return_tensors="pt").to("cuda")["input_ids"].transpose(0,1)
 #model = MambaModel.from_pretrained(model_name = "Zyphra/Zamba2-2.7B").cuda().half()
 #model = MambaModel.from_pretrained(model_name = "Zyphra/Zamba2-1.2B").cuda().half()
-model = MambaModel.from_pretrained(model_name = "Zyphra/Zamba2-1.2B-Instruct").cuda().half()
+model = MambaModel.from_pretrained(model_name = "Zyphra/Zamba2-7B-Instruct").cuda().half()
 tokens_to_generate = 200
 
 #model_hf = AutoModelForCausalLM.from_pretrained("Zyphra/Zamba2-1.2B-Instruct", device_map="cuda", torch_dtype=torch.bfloat16)

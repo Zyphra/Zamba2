@@ -156,6 +156,7 @@ class MambaModel(nn.Module):
         use_shared_attention_lora = use_shared_attention_lora,
         use_mem_rope = json_config["use_mem_rope"],
         )
+        num_heads = json_config["num_attention_heads"]
         if model_name != "Zyphra/Zamba2-2.7B":
             g_indices = []
             for i,el in enumerate(json_config["layers_block_type"]):
@@ -184,7 +185,8 @@ class MambaModel(nn.Module):
                 q = state_dict["decoder.blocks." + str(i) + ".self_attn.q_proj.weight"]
                 k = state_dict["decoder.blocks." + str(i) + ".self_attn.k_proj.weight"]
                 v = state_dict["decoder.blocks." + str(i) + ".self_attn.v_proj.weight"]
-                qkv = torch.concat([q,k,v], dim=0)
+                print("NUM HEADS: ", num_heads)
+                qkv = HF_QKV_Inverse_Transform(q,k,v,num_heads)
                 state_dict["decoder.blocks."+str(i)+".sa.mixer.linear_qkv.weight"] = qkv
                 del state_dict["decoder.blocks." + str(i) + ".self_attn.q_proj.weight"]
                 del state_dict["decoder.blocks." + str(i) + ".self_attn.k_proj.weight"]
