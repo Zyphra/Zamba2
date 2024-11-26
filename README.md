@@ -22,7 +22,7 @@ To begin, clone and install this repo:
 
 3.) Install the repository: `pip install -e .`
 
-4.) Install core mamba dependencies `pip install -U mamba-ssm causal-conv1d`
+4.) Install core mamba dependencies: `pip install -U mamba-ssm==2.1.0 causal-conv1d==1.3.0.post1`
 
 
 You can run the model without using the optimized Mamba kernels, but it is **not** recommended as it will result in significantly higher latency and memory usage. 

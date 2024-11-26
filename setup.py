@@ -151,8 +151,9 @@ setup(
         "packaging",
         "ninja",
         "einops",
-        "triton",
         "transformers",
-        "causal-conv1d==1.2.0.post2",
+        "triton==2.2.0",
+        # "mamba-ssm==2.1.0",
+        # "causal-conv1d==1.3.0.post1",
     ],
 )
