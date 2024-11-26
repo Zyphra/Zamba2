@@ -153,6 +153,7 @@ setup(
         "einops",
         "transformers",
         "triton==2.2.0",
+        "numpy==1.26.4"
         # "mamba-ssm==2.1.0",
         # "causal-conv1d==1.3.0.post1",
     ],
